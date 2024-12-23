@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/flyotlin/half-frame-utils/internal"
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +31,7 @@ var (
 	src      string
 	dest     string
 	cropConf internal.CropConfig
+	pb       *progressbar.ProgressBar
 )
 
 func init() {
@@ -57,6 +59,8 @@ func cropRun(cmd *cobra.Command, args []string) {
 	}
 
 	if stat.IsDir() { // Directory
+		count := countImages(src)
+		pb = progressbar.Default(int64(count), "Cropping images")
 		filepath.WalkDir(src, visitDir)
 	} else { // File
 		internal.CropInHalf(src, dest, cropConf)
@@ -93,10 +97,25 @@ func statDestDir(path string) fs.FileInfo {
 	return stat
 }
 
+func countImages(path string) int {
+	files, err := os.ReadDir(path)
+	if err != nil {
+		log.Fatalf("failed to list directory %v: [%v]", path, err)
+	}
+	count := 0
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".jpg") {
+			count += 1
+		}
+	}
+	return count
+}
+
 func visitDir(path string, d os.DirEntry, err error) error {
 	if !strings.HasSuffix(path, ".jpg") {
 		return nil
 	}
 	internal.CropInHalf(path, dest, cropConf)
+	pb.Add(1)
 	return nil
 }
