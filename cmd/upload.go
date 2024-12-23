@@ -1,40 +1,76 @@
 /*
 Copyright © 2024 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
-	"fmt"
+	"log"
+	"os"
+	"os/exec"
 
+	"github.com/flyotlin/half-frame-utils/internal"
+	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
 )
 
 // uploadCmd represents the upload command
 var uploadCmd = &cobra.Command{
-	Use:   "upload",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Use:   "upload [file or directory]",
+	Short: "Upload file or directory to immich",
+	Long: `Upload file or directory to immich.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("upload called")
-	},
+Config precedence:
+	env (not implemented yet) > cli argument > config file`,
+	Args: cobra.ExactArgs(1),
+	Run:  uploadRun,
 }
 
+var uploadSrc string
+
 func init() {
-	// rootCmd.AddCommand(uploadCmd)
+	rootCmd.AddCommand(uploadCmd)
 
-	// Here you will define your flags and configuration settings.
+	uploadCmd.Flags().StringVar(&config.ImmichUrl, "immich-url", "", "immich url")
+	uploadCmd.Flags().StringVar(&config.ImmichApiKey, "immich-api-key", "", "immich api key")
+}
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// uploadCmd.PersistentFlags().String("foo", "", "A help for foo")
+var config internal.HFUtilsConfig
 
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// uploadCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+func uploadRun(cmd *cobra.Command, args []string) {
+	uploadSrc = args[0]
+	readHFUtilsConfig()
+
+	execute("immich", "login", config.ImmichUrl, config.ImmichApiKey)
+	execute("immich", "upload", uploadSrc)
+}
+
+func readHFUtilsConfig() {
+	var c internal.HFUtilsConfig
+
+	file, err := os.ReadFile("config.toml")
+	if err != nil {
+		log.Fatalf("failed to read config file: [%v]", err)
+	}
+	err = toml.Unmarshal(file, &c)
+	if err != nil {
+		log.Fatalf("failed to unmarshal config file to go-struct: [%v]", err)
+	}
+
+	if config.ImmichUrl == "" {
+		config.ImmichUrl = c.ImmichUrl
+	}
+
+	if config.ImmichApiKey == "" {
+		config.ImmichApiKey = c.ImmichApiKey
+	}
+}
+
+func execute(name string, arg ...string) {
+	c := exec.Command(name, arg...)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	err := c.Run()
+	if err != nil {
+		log.Fatalf("failed to execute: [%v]", err)
+	}
 }

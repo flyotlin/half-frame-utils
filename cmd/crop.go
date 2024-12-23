@@ -10,67 +10,80 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/flyotlin/half-frame-utils/internal"
 	"github.com/spf13/cobra"
-
-	"github.com/flyotlin/half-frame-utils/utils"
 )
 
 // cropCmd represents the crop command
 var cropCmd = &cobra.Command{
-	Use:   "crop",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Use:   "crop [file or directory]",
+	Short: "Crop images",
+	Long: `Two modes are supported in image cropping.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	Run: cropRun,
+1. Auto: hf-utils calculates width based on color distance for you
+2. Manual: set width on your own`,
+	Args: cobra.ExactArgs(1),
+	Run:  cropRun,
 }
 
 var (
-	src   string
-	dest  string
-	width int
+	src      string
+	dest     string
+	cropConf internal.CropConfig
 )
 
 func init() {
 	rootCmd.AddCommand(cropCmd)
 
-	// TODO: src becomes a required positional argument
-	cropCmd.Flags().StringVarP(&src, "src", "s", "", "source file/directory path")
-	cropCmd.Flags().StringVarP(&dest, "dest", "d", "./", "destination directory path")
-	cropCmd.Flags().IntVarP(&width, "width", "w", 0, "width for cropping")
-	// TODO: suffix, prefix
-
-	cropCmd.MarkFlagRequired("src")
-	// cropCmd.MarkFlagRequired("dest")
+	cropCmd.Flags().StringVarP(&dest, "dest-dir", "d", "./", "destination directory path")
+	cropCmd.Flags().IntVarP(&cropConf.Width, "width", "w", -1, "width for cropping (80 is recommended)")
+	cropCmd.Flags().StringVar(&cropConf.Prefix, "prefix", "", "prefix for cropped images")
+	cropCmd.Flags().StringVar(&cropConf.Suffix, "suffix", "", "suffix for cropped images")
 }
 
 func cropRun(cmd *cobra.Command, args []string) {
-	stat := statPath(src)
+	src = args[0]
+	stat := statSrc(src)
+	statDestDir(dest)
 	if stat.IsDir() {
 		log.Printf("start to crop images in directory [%v]...\n", src)
-		statPath(dest)
 	} else {
 		log.Printf("start to crop image [%v]...\n", src)
+	}
+	if cropConf.Width == -1 {
+		log.Println("crop in auto mode...")
+	} else {
+		log.Println("crop in manual mode...")
 	}
 
 	if stat.IsDir() { // Directory
 		filepath.WalkDir(src, visitDir)
 	} else { // File
-		utils.CropInHalf(src, dest)
+		internal.CropInHalf(src, dest, cropConf)
 	}
 }
 
-func statPath(path string) fs.FileInfo {
-	if path == "" {
-		log.Fatalln("--dest is not given")
-	}
-
+func statSrc(path string) fs.FileInfo {
 	stat, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		log.Fatalf("[%v] not exist: [%v]", path, err)
+	} else if os.IsPermission(err) {
+		log.Fatalf("[%v] permission denied: [%v]", path, err)
+	} else if err != nil {
+		log.Fatalf("failed to stat [%v]: [%v]", path, err)
+	}
+
+	return stat
+}
+
+func statDestDir(path string) fs.FileInfo {
+	stat, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		log.Printf("[%v] not exist, create a new one", path)
+		err = os.Mkdir(path, os.ModePerm)
+		if err != nil {
+			log.Fatalf("failed to create a new dir [%v]: %v", path, err)
+		}
 	} else if os.IsPermission(err) {
 		log.Fatalf("[%v] permission denied: [%v]", path, err)
 	} else if err != nil {
@@ -84,6 +97,6 @@ func visitDir(path string, d os.DirEntry, err error) error {
 	if !strings.HasSuffix(path, ".jpg") {
 		return nil
 	}
-	utils.CropInHalf(path, dest)
+	internal.CropInHalf(path, dest, cropConf)
 	return nil
 }
